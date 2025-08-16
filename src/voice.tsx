@@ -59,7 +59,15 @@ export default function VoiceCall({
   const createPeerConnection = useCallback(
     async (peerId: string, isInitiator: boolean) => {
       if (peerConnections.current.has(peerId)) return;
-      const pc = new RTCPeerConnection();
+
+      //  STUN 
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+         
+        ],
+        iceCandidatePoolSize: 10,
+      });
 
       localStreamRef.current?.getTracks().forEach((track) => {
         pc.addTrack(track, localStreamRef.current!);
@@ -83,9 +91,23 @@ export default function VoiceCall({
               type: "voice-candidate",
               candidate: event.candidate,
               from: userId,
-              targetId: peerId,
+              targetId: peerId, 
             })
           );
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState;
+        if (state === "failed" || state === "disconnected" || state === "closed") {
+          const audio = remoteAudioRef.current.get(peerId);
+          if (audio) {
+            audio.srcObject = null;
+            audio.remove();
+            remoteAudioRef.current.delete(peerId);
+          }
+          pc.close();
+          peerConnections.current.delete(peerId);
         }
       };
 
@@ -99,7 +121,7 @@ export default function VoiceCall({
             type: "voice-offer",
             offer,
             from: userId,
-            targetId: peerId,
+            targetId: peerId, 
           })
         );
       }
@@ -127,23 +149,20 @@ export default function VoiceCall({
       if (data.type === "voice-offer" && data.from !== userId) {
         await initLocalStream();
         await createPeerConnection(data.from, false);
+
         await peerConnections.current
           .get(data.from)
           ?.setRemoteDescription(new RTCSessionDescription(data.offer));
 
-        const answer = await peerConnections.current
-          .get(data.from)
-          ?.createAnswer();
-        await peerConnections.current
-          .get(data.from)
-          ?.setLocalDescription(answer);
+        const answer = await peerConnections.current.get(data.from)?.createAnswer();
+        await peerConnections.current.get(data.from)?.setLocalDescription(answer);
 
         ws.send(
           JSON.stringify({
             type: "voice-answer",
             answer,
             from: userId,
-            targetId: data.from,
+            targetId: data.from, 
           })
         );
         setInCall(true);
@@ -215,62 +234,46 @@ export default function VoiceCall({
 
   return (
     <div className="relative mt-2">
-    {/* Incoming Call Modal */}
-    {incomingCall && (
-      <div
-        className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-md z-50" 
-        // Fullscreen overlay with dark tint + blur
-      >
-        <div
-          className="bg-zinc-900/80 rounded-2xl shadow-2xl p-6 w-80 border border-white/10 animate-[fadeIn_0.3s_ease-out] text-center" 
-          // Glassmorphism effect for modal
-        >
-          {/* Modal Title */}
-          <h2 className="text-lg font-bold text-white mb-2">📞 Incoming Call</h2>
-
-          {/* Caller Info */}
-          <p className="text-sm text-zinc-300 mb-6">
-            {incomingCall} is calling you...
-          </p>
-
-          {/* Accept / Ignore Buttons */}
-          <div className="flex justify-center gap-4">
-            {/* Accept Call */}
-            <button
-              className="px-5 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white font-semibold shadow-lg transition-transform transform hover:scale-105 flex items-center gap-2"
-              onClick={acceptCall}
-            >
-              <Phone size={18} /> Accept
-            </button>
-
-            {/* Ignore Call */}
-            <button
-              className="px-5 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-semibold shadow-lg transition-transform transform hover:scale-105 flex items-center gap-2"
-              onClick={rejectCall}
-            >
-              <PhoneOff size={18} /> Ignore
-            </button>
+      {/* Incoming Call Modal */}
+      {incomingCall && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-md z-50">
+          <div className="bg-zinc-900/80 rounded-2xl shadow-2xl p-6 w-80 border border-white/10 text-center">
+            <h2 className="text-lg font-bold text-white mb-2">Incoming Call</h2>
+            <p className="text-sm text-zinc-300 mb-6">{incomingCall} is calling you...</p>
+            <div className="flex justify-center gap-4">
+              <button
+                className="px-5 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white font-semibold flex items-center gap-2"
+                onClick={acceptCall}
+              >
+                <Phone size={18} /> Accept
+              </button>
+              <button
+                className="px-5 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-semibold flex items-center gap-2"
+                onClick={rejectCall}
+              >
+                <PhoneOff size={18} /> Ignore
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    )}
+      )}
 
-    {/* Call Control Buttons */}
-    {!inCall ? (
-      <button
-        onClick={() => startCall(false)}
-        className="bg-green-600 hover:bg-green-500 text-white font-semibold px-4 h-10 rounded-md border border-zinc-700 transition"
-      >
-        Start Call
-      </button>
-    ) : (
-      <button
-        onClick={leaveCall}
-        className="bg-red-500 hover:bg-red-400 text-white px-4 py-2 rounded-md cursor-pointer transition"
-      >
-        Leave Call
-      </button>
-    )}
-  </div>
+      {/* Call Control Buttons */}
+      {!inCall ? (
+        <button
+          onClick={() => startCall(false)}
+          className="bg-green-600 hover:bg-green-500 text-white font-semibold px-4 h-10 rounded-md border border-zinc-700 transition"
+        >
+          Start Call
+        </button>
+      ) : (
+        <button
+          onClick={leaveCall}
+          className="bg-red-500 hover:bg-red-400 text-white px-4 py-2 rounded-md cursor-pointer transition"
+        >
+          Leave Call
+        </button>
+      )}
+    </div>
   );
 }
