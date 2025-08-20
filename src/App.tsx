@@ -40,14 +40,26 @@ function App() {
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
+
+    ws.onclose = (event) => {
+      console.log("WebSocket closed:", event.code, event.reason);
+    };
+
     ws.onopen = () => {
+      console.log("WebSocket connected");
       if (roomId) {
+        console.log("Joining room:", roomId);
         ws.send(JSON.stringify({ type: "join", payload: { roomId } }));
       }
     };
 
       const handleMessage = (event: MessageEvent) => {
+      console.log("Raw WebSocket message:", event.data);
       const data = JSON.parse(event.data);
+      console.log("Parsed WebSocket message:", data);
 
       if (data.type === "id") {
         setMyId(data.payload.senderId);
@@ -65,11 +77,13 @@ function App() {
 
       if (data.type === "audio-message") {
         // Ignore echoed audio from self; we already added it optimistically
-        if (data.payload.senderId === myIdRef.current) return;
-        setMessages((prev) => [
-          ...prev,
-          { senderId: data.payload.senderId, audio: data.payload.audio },
-        ]);
+        if (data.payload.senderId === myIdRef.current || data.payload.senderId === myId) return;
+        console.log("Received audio message:", data.payload);
+        setMessages((prev) => {
+          const newMessages = [...prev, { senderId: data.payload.senderId, audio: data.payload.audio }];
+          console.log("Added received audio to state, total messages:", newMessages.length);
+          return newMessages;
+        });
       }
 
       if (data.type === "userCount") setUserCount(data.payload.count);
@@ -81,22 +95,29 @@ function App() {
       ws.removeEventListener("message", handleMessage);
       ws.close();
     };
-  }, [roomId, step]);
+  }, [roomId]);
 
   // 🔽 Send text or audio
   const handleSend = (e?: React.FormEvent) => {
     if (e) e.preventDefault(); // stop form double submit
-    if (!wsRef.current) return;
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      console.error("WebSocket not ready:", wsRef.current?.readyState);
+      return;
+    }
 
     // 🎤 Audio first
     if (pendingAudio) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "audio-message",
-          payload: { senderId: myId, roomId, audio: pendingAudio },
-        })
-      );
-      setMessages((prev) => [...prev, { senderId: myId || "me", audio: pendingAudio }]);
+      const audioMessage = {
+        type: "audio-message",
+        payload: { senderId: myId, roomId, audio: pendingAudio },
+      };
+      console.log("Sending audio message:", audioMessage);
+      wsRef.current.send(JSON.stringify(audioMessage));
+      setMessages((prev) => {
+        const newMessages = [...prev, { senderId: myId || "me", audio: pendingAudio }];
+        console.log("Added audio message to state, total messages:", newMessages.length);
+        return newMessages;
+      });
       setPendingAudio(null);
       if (inputRef.current) inputRef.current.value = "";
       return;
@@ -237,7 +258,14 @@ function App() {
                     }`}
                   >
                     <span className="text-xs opacity-80">🔊 Audio</span>
-                    <audio controls src={msg.audio} className="w-48 max-w-full opacity-90" />
+                    <audio 
+                      controls 
+                      src={msg.audio} 
+                      className="w-48 max-w-full opacity-90"
+                      onError={(e) => console.error("Audio playback error:", e)}
+                      onLoadStart={() => console.log("Audio loading started")}
+                      onCanPlay={() => console.log("Audio can play")}
+                    />
                   </div>
                 )}
               </div>
@@ -268,9 +296,11 @@ function App() {
         </button>
         <Audio
           onAudioRecorded={(blob) => {
+            console.log("Audio recorded, blob size:", blob.size, "type:", blob.type);
             const reader = new FileReader();
             reader.onloadend = () => {
               const base64Audio = reader.result as string;
+              console.log("Audio converted to base64, length:", base64Audio.length);
               setPendingAudio(base64Audio);
             };
             reader.readAsDataURL(blob);

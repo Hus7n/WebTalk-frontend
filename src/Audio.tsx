@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 
 interface AudioProps {
-  onAudioRecorded: (blob: Blob, url: string) => void;
+  onAudioRecorded: (blob: Blob) => void;
 }
 
 export default function Audio({ onAudioRecorded }: AudioProps) {
@@ -25,8 +25,8 @@ export default function Audio({ onAudioRecorded }: AudioProps) {
         const url = URL.createObjectURL(blob);
         setAudioURL(url);
 
-        // Pass blob + url up to parent
-        onAudioRecorded(blob, url);
+        // Pass blob up to parent
+        onAudioRecorded(blob);
 
         // ✅ stop mic input
         stream.getTracks().forEach((track) => track.stop());
